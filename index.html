@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -53,6 +54,11 @@
             color: inherit;
             padding: 0;
         }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+        }
     </style>
 </head>
 <body>
@@ -62,8 +68,8 @@
         fetch('README.md')
             .then(response => response.text())
             .then(markdown => {
-                // Display raw markdown (GitHub will render it server-side, or we display as-is)
-                document.getElementById('content').textContent = markdown;
+                // Render HTML content directly
+                document.getElementById('content').innerHTML = markdown;
             })
             .catch(error => {
                 document.getElementById('content').innerHTML = '<p>Unable to load README.md</p>';
