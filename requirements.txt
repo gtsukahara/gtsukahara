@@ -7,7 +7,7 @@ scipy==1.11.2
 matplotlib==3.8.0
 sqlalchemy==2.0.20
 pytest==7.4.0
-gunicorn==21.2.0
+gunicorn==23.0.0
 pillow==10.0.0
 cryptography==50.0.0
 python-dotenv==1.0.0
