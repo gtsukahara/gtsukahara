@@ -21,7 +21,7 @@ name: Build and deploy Python app to Azure Web App
 
 env:
   AZURE_WEBAPP_NAME: gt-azure-app  # set this to the name of your Azure Web App
-  PYTHON_VERSION: '3.8'              # set this to the Python version to use
+  PYTHON_VERSION: '3.10'            # Changed to use Python version '3.8'
 
 on:
   push:
