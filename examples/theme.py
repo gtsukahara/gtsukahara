@@ -50,7 +50,7 @@ def style_figure(fig, template: str):
     fig.update_layout(
         template=template,
         colorway=COLORWAY,
-        margin={"l": 8, "r": 8, "t": 70 if has_title else 40, "b": 8},
+        margin={"l": 8, "r": 8, "t": 90 if has_title else 40, "b": 8},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
     )
     fig.update_xaxes(automargin=True)

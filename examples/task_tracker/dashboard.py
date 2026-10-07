@@ -1,8 +1,9 @@
 """Dash page: completion trend, open tasks by priority, KPIs, add-task form."""
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import Dash, Input, Output, State, dcc, html
+from dash import Dash, Input, Output, State, dcc, html, no_update
 
 from ..theme import COLORWAY, graph_card, kpi_card, style_figure
 from . import service, stats
@@ -14,6 +15,60 @@ def kpi_cards(k: dict) -> list:
         kpi_card("Completed this week", str(k["completed_this_week"])),
         kpi_card("Avg time to complete", f"{k['avg_hours_to_complete']} h"),
     ]
+
+
+def table_rows(tasks) -> list:
+    """Rows for the task table: open tasks first, then by priority, newest first."""
+    ordered = sorted(tasks, key=lambda t: (t.status == "done", t.priority, -t.id))
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "priority": t.priority,
+            "status": t.status,
+            "created": t.created_at.strftime("%Y-%m-%d %H:%M"),
+            "completed": t.completed_at.strftime("%Y-%m-%d %H:%M") if t.completed_at else "",
+        }
+        for t in ordered
+    ]
+
+
+COLUMN_DEFS = [
+    {"field": "title", "headerName": "Title", "flex": 3, "minWidth": 180},
+    {"field": "priority", "headerName": "Priority", "width": 110, "filter": "agNumberColumnFilter"},
+    {"field": "status", "headerName": "Status", "width": 110},
+    {"field": "created", "headerName": "Created", "width": 160},
+    {"field": "completed", "headerName": "Completed", "width": 160},
+]
+
+# AG Grid theme built from the Bootstrap theme's CSS variables, so the table follows whichever theme is active.
+GRID_THEME = (
+    "themeQuartz.withParams({"
+    "backgroundColor: 'transparent', foregroundColor: 'var(--bs-body-color)', "
+    "headerBackgroundColor: 'transparent', headerTextColor: 'var(--bs-body-color)', "
+    "borderColor: 'var(--bs-border-color)', rowHoverColor: 'rgba(128,128,128,0.15)', "
+    "fontFamily: 'inherit', wrapperBorder: false})"
+)
+
+
+def task_grid():
+    return dag.AgGrid(
+        id="task-table",
+        rowData=[],
+        columnDefs=COLUMN_DEFS,
+        defaultColDef={"sortable": True, "filter": True, "resizable": True},
+        getRowId="String(params.data.id)",
+        getRowStyle={"styleConditions": [{"condition": "params.data.status === 'done'", "style": {"opacity": 0.55}}]},
+        dashGridOptions={
+            "pagination": True,
+            "paginationPageSize": 10,
+            "paginationPageSizeSelector": [10, 25, 50],
+            "domLayout": "autoHeight",
+            "animateRows": False,
+            "theme": {"function": GRID_THEME},
+        },
+        style={"width": "100%"},
+    )
 
 
 def _priority(value) -> int:
@@ -85,32 +140,59 @@ def register_dashboard(server, stylesheet, template):
                 ],
                 className="g-3",
             ),
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.H5("All tasks", className="mb-3"),
+                                task_grid(),
+                            ]
+                        )
+                    )
+                ),
+                className="mt-3",
+            ),
+            dcc.Store(id="version", data=0),
         ],
         fluid="lg",
         className="pb-4",
     )
 
     @dash_app.callback(
-        Output("per-day", "figure"),
-        Output("by-priority", "figure"),
-        Output("kpis", "children"),
+        Output("version", "data"),
         Output("title", "value"),
         Input("add", "n_clicks"),
         State("title", "value"),
         State("priority", "value"),
+        State("version", "data"),
+        prevent_initial_call=True,
     )
-    def refresh(n_clicks, title, priority):
+    def add_task(_n_clicks, title, priority, version):
+        if not (title and title.strip()):
+            return no_update, no_update
         with factory() as s:
-            if n_clicks and title and title.strip():
-                service.create_task(s, title.strip()[:service.MAX_TITLE], _priority(priority))
+            service.create_task(s, title.strip()[:service.MAX_TITLE], _priority(priority))
+        return version + 1, ""
+
+    @dash_app.callback(
+        Output("per-day", "figure"),
+        Output("by-priority", "figure"),
+        Output("kpis", "children"),
+        Output("task-table", "rowData"),
+        Input("version", "data"),
+    )
+    def refresh(_version):
+        with factory() as s:
             per_day = pd.DataFrame(stats.completed_per_day(s), columns=["day", "completed"])
             prio = stats.open_by_priority(s)
             k = stats.kpis(s)
+            rows = table_rows(service.list_tasks(s))
         return (
             style_figure(per_day_figure(per_day), template),
             style_figure(priority_figure(prio), template),
             kpi_cards(k),
-            "",
+            rows,
         )
 
     return dash_app

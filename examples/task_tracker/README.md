@@ -18,7 +18,8 @@ input, 404 for unknown ids.
 - Bar chart: tasks completed per day, last 14 days
 - Pie chart: open tasks by priority
 - KPIs: open count, completed this week, average time to complete
-- Add-task form that creates a task and refreshes the charts
+- **All tasks** table (AG Grid): sortable, filterable, paged; open tasks first, done tasks dimmed
+- Add-task form that creates a task and refreshes the charts, KPIs and table
 - Styled with the shared theme (see `examples/theme.py`); choose another with `EXAMPLES_THEME=FLATLY`
 
 ## Layout
@@ -27,7 +28,7 @@ models.py     # SQLAlchemy 2.0 Task model, session factory
 service.py    # create/get/list/update/delete + validation, shared by the API and the dashboard
 api.py        # Flask blueprint: maps the service to HTTP (400 for ValidationError, 404 for TaskNotFound)
 stats.py      # plain stats queries (completed_per_day, open_by_priority, kpis)
-dashboard.py  # Dash layout and callback
+dashboard.py  # Dash layout and callbacks: `add_task` writes and bumps a version counter; `refresh` redraws from the DB
 app.py        # create_app(db_url), demo seed data, entry point
 test_task_tracker.py
 ```
@@ -49,6 +50,9 @@ pytest examples/task_tracker
 Tests use in-memory SQLite.
 
 ## Design notes
+- The dashboard has two callbacks: one that writes (add) and bumps a `version` store, and one that reads and redraws
+  everything when `version` changes. Later edit/delete actions just bump the same counter.
+- The table uses `dash-ag-grid`, not `dash_table.DataTable`, which Dash 4 has deprecated.
 - Plain SQLAlchemy with one session per request, not Flask-SQLAlchemy, to keep dependencies as they are.
 - Charts pass the shared palette to Plotly Express explicitly (`px` fixes marker colours when it builds a figure, so a
   layout-level palette alone would not recolour the bars and slices).
