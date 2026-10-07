@@ -1,23 +1,28 @@
-# Flask + Dash demo
+# Flask + Dash demo (start here)
 
-A tiny app showing Flask and Dash sharing one server.
+The simplest of the three examples: one 60-line file showing Flask and Dash sharing one server.
+Read this one first, then move on to `live_metrics` (auto-refresh) and `task_tracker` (database and forms).
 
-- `/` - Flask route (HTML)
+- `/` - Flask route returning an HTML landing page
 - `/api/sales` - Flask JSON API backed by a pandas DataFrame
-- `/dash/` - Dash dashboard (region dropdown + Plotly bar chart) mounted on the same Flask app
+- `/dash/` - Dash dashboard (region dropdown + grouped Plotly bar chart) mounted on the same Flask app
 
-## Run
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt   # from the repo root
-python examples/flask_dash_demo/app.py
+## Layout
+```
+app.py                  # create_app(): Flask routes + Dash mounted at /dash/
+test_flask_dash_demo.py
 ```
 
-Then open http://127.0.0.1:5000/ .
+## Run
+From the repo root, in a venv with `requirements.txt` installed:
+
+```bash
+python -m examples.flask_dash_demo.app
+```
+
+Then open http://127.0.0.1:5003/ . Port 5003 is used because macOS's AirPlay Receiver occupies port 5000.
 
 ## Test
-
 ```bash
 pytest examples/flask_dash_demo
 ```
