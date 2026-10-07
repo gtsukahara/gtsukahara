@@ -10,7 +10,7 @@ pytest==7.4.0
 gunicorn==23.0.0
 pillow==12.3.0
 cryptography==50.0.0
-python-dotenv==1.0.0
+python-dotenv==1.2.2
 fastapi==0.100.0
 uvicorn==0.23.2
 pip==26.2
