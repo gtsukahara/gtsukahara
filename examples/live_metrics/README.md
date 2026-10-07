@@ -26,17 +26,17 @@ python -m examples.live_metrics.app
 Then open http://127.0.0.1:5001/dash/ .
 
 ### Themes
-The look comes from a Bootswatch theme via `dash-bootstrap-components`, with a matching Plotly figure template
-from `dash-bootstrap-templates`. The default is `CYBORG` (dark, with the best line contrast of the ones tried).
-Pick another with an environment variable (any of the 25 names in `THEMES` in `app.py`):
+All three demos share one look, defined in `examples/theme.py`: a Bootswatch theme from
+`dash-bootstrap-components`, the matching Plotly figure template from `dash-bootstrap-templates`, and a
+colour-blind-safe chart palette. The default is `DARKLY`. Pick another with an environment variable
+(any of the 25 names in `THEMES`):
 
 ```bash
-LIVE_METRICS_THEME=FLATLY python -m examples.live_metrics.app     # light
-PORT=5010 python -m examples.live_metrics.app                       # change the port
+EXAMPLES_THEME=FLATLY python -m examples.live_metrics.app     # light
+PORT=5010 python -m examples.live_metrics.app                  # change the port
 ```
 
-`DARKLY` is also dark but its default CPU line is low contrast on the dark background. In code:
-`create_app(theme="FLATLY")`.
+In code: `create_app(theme="FLATLY")`.
 
 ## Test
 ```bash
