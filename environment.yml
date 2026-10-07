@@ -5,3 +5,5 @@ dependencies:
   - python=3.10
   - pip
   - pytest
+  - pip:
+    - -r requirements.txt
