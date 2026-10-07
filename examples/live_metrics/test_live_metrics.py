@@ -1,6 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
-from live_metrics.app import MAXLEN, create_app, kpi_cards, make_figure
+import dash_bootstrap_components as dbc
+import plotly.io as pio
+import pytest
+
+from live_metrics.app import DEFAULT_THEME, MAXLEN, THEMES, create_app, kpi_cards, make_figure
 from live_metrics.metrics import CPU_MEAN, STEP, MetricsStream, kpis, p95
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -135,7 +139,8 @@ def test_dash_layout_has_interval_graph_and_labelled_windows():
     assert "Last 5 minutes" in layout
 
 
-def test_dash_callback_catches_up_and_refreshes():
+@pytest.mark.parametrize("window", [30, "30"])  # dbc.Select may send the value as a string
+def test_dash_callback_catches_up_and_refreshes(window):
     clock = Clock()
     server = create_app(seed=1, prefill=60, clock=clock)
     stream = server.extensions["metrics_stream"]
@@ -149,7 +154,7 @@ def test_dash_callback_catches_up_and_refreshes():
         ],
         "inputs": [
             {"id": "tick", "property": "n_intervals", "value": 1},
-            {"id": "window", "property": "value", "value": 30},
+            {"id": "window", "property": "value", "value": window},
         ],
         "changedPropIds": ["tick.n_intervals"],
     }
@@ -159,3 +164,26 @@ def test_dash_callback_catches_up_and_refreshes():
     assert "p95 latency" in str(response["kpis"]["children"])
     assert len(response["chart"]["figure"]["data"]) == 2
     assert len(stream.window(MAXLEN)) == before + 3
+
+
+# --- theming --------------------------------------------------------------
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_every_listed_theme_has_a_stylesheet_and_figure_template(theme):
+    assert getattr(dbc.themes, theme).startswith("http")
+    create_app(theme=theme)  # registers the matching figure template
+    assert theme.lower() in pio.templates
+
+
+def test_page_links_the_chosen_theme_stylesheet():
+    html = client(theme="cyborg").get("/dash/").get_data(as_text=True)
+    assert dbc.themes.CYBORG in html
+
+
+def test_default_theme_is_valid():
+    assert DEFAULT_THEME in THEMES
+
+
+def test_unknown_theme_is_rejected():
+    with pytest.raises(ValueError, match="unknown theme"):
+        create_app(theme="neon")

@@ -7,7 +7,7 @@ same server at `/dash/` and refreshes itself every 2 seconds.
   (`ts`, `cpu`, `requests`, `latency_ms`) after catching the stream up to the current time
 - `GET /api/health` returns `{"status": "ok"}`
 - `/dash/` shows CPU (%) and latency (ms) on separate axes, two KPI cards (requests/s, p95 latency)
-  and a window dropdown (30 seconds, 60 seconds, 5 minutes)
+  and a window dropdown (30 seconds, 60 seconds, 5 minutes); the layout is responsive down to phone width
 
 ## Layout
 ```
@@ -24,6 +24,19 @@ python -m examples.live_metrics.app
 ```
 
 Then open http://127.0.0.1:5001/dash/ .
+
+### Themes
+The look comes from a Bootswatch theme via `dash-bootstrap-components`, with a matching Plotly figure template
+from `dash-bootstrap-templates`. The default is `CYBORG` (dark, with the best line contrast of the ones tried).
+Pick another with an environment variable (any of the 25 names in `THEMES` in `app.py`):
+
+```bash
+LIVE_METRICS_THEME=FLATLY python -m examples.live_metrics.app     # light
+PORT=5010 python -m examples.live_metrics.app                       # change the port
+```
+
+`DARKLY` is also dark but its default CPU line is low contrast on the dark background. In code:
+`create_app(theme="FLATLY")`.
 
 ## Test
 ```bash
