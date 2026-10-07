@@ -6,7 +6,9 @@ completion trends. Uses the `sqlalchemy` pin already in `requirements.txt`.
 ## API
 - `GET /api/tasks?status=open|done`
 - `POST /api/tasks` with `{"title": "...", "priority": 1-3}` (priority defaults to 2)
-- `PATCH /api/tasks/<id>` with `{"status": "open"|"done"}` (sets or clears `completed_at`)
+- `PATCH /api/tasks/<id>` with any of `title`, `priority`, `status`. Unknown fields and empty bodies are rejected,
+  and nothing is applied unless everything is valid. Setting `status` to `done` stamps `completed_at` (marking an
+  already-done task done again keeps the original time); `open` clears it.
 - `DELETE /api/tasks/<id>`
 
 Validation: non-empty title (max 200 chars), integer priority 1-3, 400 for bad
@@ -22,7 +24,8 @@ input, 404 for unknown ids.
 ## Layout
 ```
 models.py     # SQLAlchemy 2.0 Task model, session factory
-api.py        # Flask blueprint with the CRUD routes
+service.py    # create/get/list/update/delete + validation, shared by the API and the dashboard
+api.py        # Flask blueprint: maps the service to HTTP (400 for ValidationError, 404 for TaskNotFound)
 stats.py      # plain stats queries (completed_per_day, open_by_priority, kpis)
 dashboard.py  # Dash layout and callback
 app.py        # create_app(db_url), demo seed data, entry point

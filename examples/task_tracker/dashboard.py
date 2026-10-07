@@ -5,8 +5,7 @@ import plotly.express as px
 from dash import Dash, Input, Output, State, dcc, html
 
 from ..theme import COLORWAY, graph_card, kpi_card, style_figure
-from . import stats
-from .models import Task
+from . import service, stats
 
 
 def kpi_cards(k: dict) -> list:
@@ -103,8 +102,7 @@ def register_dashboard(server, stylesheet, template):
     def refresh(n_clicks, title, priority):
         with factory() as s:
             if n_clicks and title and title.strip():
-                s.add(Task(title=title.strip()[:200], priority=_priority(priority)))
-                s.commit()
+                service.create_task(s, title.strip()[:service.MAX_TITLE], _priority(priority))
             per_day = pd.DataFrame(stats.completed_per_day(s), columns=["day", "completed"])
             prio = stats.open_by_priority(s)
             k = stats.kpis(s)
