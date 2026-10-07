@@ -1,11 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
 import dash_bootstrap_components as dbc
-import plotly.io as pio
 import pytest
 
-from live_metrics.app import DEFAULT_THEME, MAXLEN, THEMES, create_app, kpi_cards, make_figure
-from live_metrics.metrics import CPU_MEAN, STEP, MetricsStream, kpis, p95
+from examples.live_metrics.app import MAXLEN, create_app, kpi_cards, make_figure
+from examples.live_metrics.metrics import CPU_MEAN, STEP, MetricsStream, kpis, p95
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -119,6 +118,13 @@ def test_health():
 
 # --- dashboard ------------------------------------------------------------
 
+def test_figure_uses_the_shared_palette():
+    from examples.theme import COLORWAY
+
+    fig = make_figure(MetricsStream(seed=1, prefill=5, clock=Clock()).window(5), "darkly")
+    assert list(fig.layout.colorway) == COLORWAY
+
+
 def test_figure_has_labelled_dual_axes():
     points = MetricsStream(seed=1, prefill=20, clock=Clock()).window(20)
     fig = make_figure(points)
@@ -168,20 +174,9 @@ def test_dash_callback_catches_up_and_refreshes(window):
 
 # --- theming --------------------------------------------------------------
 
-@pytest.mark.parametrize("theme", THEMES)
-def test_every_listed_theme_has_a_stylesheet_and_figure_template(theme):
-    assert getattr(dbc.themes, theme).startswith("http")
-    create_app(theme=theme)  # registers the matching figure template
-    assert theme.lower() in pio.templates
-
-
 def test_page_links_the_chosen_theme_stylesheet():
     html = client(theme="cyborg").get("/dash/").get_data(as_text=True)
     assert dbc.themes.CYBORG in html
-
-
-def test_default_theme_is_valid():
-    assert DEFAULT_THEME in THEMES
 
 
 def test_unknown_theme_is_rejected():

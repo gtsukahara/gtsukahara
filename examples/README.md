@@ -12,6 +12,18 @@ how Flask and Dash fit together. `live_metrics` adds auto-refresh; `task_tracker
 | `live_metrics` | Self-refreshing dashboard over a simulated metrics API | 5001 |
 | `task_tracker` | Flask + SQLAlchemy CRUD API with a Dash stats page | 5002 |
 
+## Look and feel
+
+All three demos use one shared theme, `examples/theme.py`: a Bootswatch theme (`dash-bootstrap-components`), the
+matching Plotly template (`dash-bootstrap-templates`), a colour-blind-safe chart palette, and a KPI card. The default
+is `DARKLY`. Choose any of the 25 bundled themes for a run with an environment variable:
+
+```bash
+EXAMPLES_THEME=FLATLY python -m examples.task_tracker.app
+```
+
+Or in code, `create_app(theme="FLATLY")`. To change the default for every demo, edit `DEFAULT_THEME` in `theme.py`.
+
 ## 1. Run locally
 
 Use Python 3.11 (the repo pins it in `.python-version`; with pyenv, `pyenv install 3.11` first if needed).
@@ -45,7 +57,8 @@ Notes:
   AirPlay Receiver.
 - `task_tracker` creates `tasks.db` in the directory you run it from (git-ignored) and seeds sample tasks if it is empty.
 - `requirements.txt` is the whole repo's pin list (Django, FastAPI, etc.), so the install is large.
-  The demos only need: `flask`, `dash`, `plotly`, `pandas`, `sqlalchemy`, `gunicorn`.
+  The demos only need: `flask`, `dash`, `dash-bootstrap-components`, `dash-bootstrap-templates`, `plotly`, `pandas`,
+  `sqlalchemy`, `gunicorn`.
 
 ## 2. Run it the way a host will (gunicorn)
 
