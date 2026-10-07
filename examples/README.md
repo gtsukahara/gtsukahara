@@ -3,9 +3,12 @@
 Three small Flask + Dash apps live here. Each has its own README with details;
 this page covers running them locally and putting one online.
 
+**New to this? Start with `flask_dash_demo`**: it is the simplest (one short file) and the quickest way to see
+how Flask and Dash fit together. `live_metrics` adds auto-refresh; `task_tracker` adds a database and forms.
+
 | Demo | What it shows | Local port |
 |---|---|---|
-| `flask_dash_demo` | Dash mounted on a Flask server, pandas-backed API | 5003 (see note) |
+| `flask_dash_demo` | Simplest: Dash mounted on a Flask server, pandas-backed API | 5003 |
 | `live_metrics` | Self-refreshing dashboard over a simulated metrics API | 5001 |
 | `task_tracker` | Flask + SQLAlchemy CRUD API with a Dash stats page | 5002 |
 
@@ -26,8 +29,7 @@ Run one demo from the repo root:
 ```bash
 python -m examples.live_metrics.app      # http://127.0.0.1:5001/dash/
 python -m examples.task_tracker.app      # http://127.0.0.1:5002/dash/
-python -c "from examples.flask_dash_demo.app import create_app; create_app().run(port=5003, debug=True)"
-                                         # http://127.0.0.1:5003/  (dashboard at /dash/)
+python -m examples.flask_dash_demo.app    # http://127.0.0.1:5003/  (dashboard at /dash/)
 ```
 
 Run the tests (all demos at once, or one folder):
@@ -38,9 +40,9 @@ pytest examples/task_tracker
 ```
 
 Notes:
-- **Port 5000 on macOS:** the AirPlay Receiver uses it, so `python examples/flask_dash_demo/app.py`
-  (the command in that demo's own README) will not work as written. Use the command above, or turn off
-  System Settings > General > AirDrop & Handoff > AirPlay Receiver.
+- **Port 5000 on macOS:** the AirPlay Receiver uses it, which is why the demos use ports 5001-5003. If you run
+  your own Flask app on 5000, pick another port or turn off System Settings > General > AirDrop & Handoff >
+  AirPlay Receiver.
 - `task_tracker` creates `tasks.db` in the directory you run it from (git-ignored) and seeds sample tasks if it is empty.
 - `requirements.txt` is the whole repo's pin list (Django, FastAPI, etc.), so the install is large.
   The demos only need: `flask`, `dash`, `plotly`, `pandas`, `sqlalchemy`, `gunicorn`.
