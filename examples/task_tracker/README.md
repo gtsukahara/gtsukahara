@@ -17,6 +17,7 @@ input, 404 for unknown ids.
 - Pie chart: open tasks by priority
 - KPIs: open count, completed this week, average time to complete
 - Add-task form that creates a task and refreshes the charts
+- Styled with the shared theme (see `examples/theme.py`); choose another with `EXAMPLES_THEME=FLATLY`
 
 ## Layout
 ```
@@ -46,5 +47,7 @@ Tests use in-memory SQLite.
 
 ## Design notes
 - Plain SQLAlchemy with one session per request, not Flask-SQLAlchemy, to keep dependencies as they are.
+- Charts pass the shared palette to Plotly Express explicitly (`px` fixes marker colours when it builds a figure, so a
+  layout-level palette alone would not recolour the bars and slices).
 - Timestamps are naive UTC because SQLite does not store timezone info.
 - No authentication; out of scope for this example.

@@ -6,50 +6,28 @@ from a Bootswatch theme (dash-bootstrap-components) with a matching Plotly
 figure template (dash-bootstrap-templates).
 
 Run from the repo root:  python -m examples.live_metrics.app
-Pick a theme:            LIVE_METRICS_THEME=FLATLY python -m examples.live_metrics.app
+Pick a theme:            EXAMPLES_THEME=FLATLY python -m examples.live_metrics.app
 """
 import os
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, dcc, html
-from dash_bootstrap_templates import load_figure_template
 from flask import Flask, jsonify, request
 from plotly.subplots import make_subplots
 
+from ..theme import DEFAULT_THEME, kpi_card, resolve_theme, style_figure, theme_from_env
 from .metrics import MetricsStream, kpis
 
 MAXLEN = 600  # one point per second, so 10 minutes
 WINDOWS = [(30, "Last 30 seconds"), (60, "Last 60 seconds"), (300, "Last 5 minutes")]
 
-# The 25 themes bundled with dash-bootstrap-components; each has a matching figure template.
-THEMES = (
-    "CERULEAN", "COSMO", "CYBORG", "DARKLY", "FLATLY", "JOURNAL", "LITERA", "LUMEN", "LUX",
-    "MATERIA", "MINTY", "MORPH", "PULSE", "QUARTZ", "SANDSTONE", "SIMPLEX", "SKETCHY", "SLATE",
-    "SOLAR", "SPACELAB", "SUPERHERO", "UNITED", "VAPOR", "YETI", "ZEPHYR",
-)
-DEFAULT_THEME = "CYBORG"
-
 
 def kpi_cards(stats: dict) -> list:
     """Two cards: latest requests/s and p95 latency."""
-    def card(label, value):
-        return dbc.Col(
-            dbc.Card(
-                dbc.CardBody(
-                    [
-                        html.Div(label, className="text-muted small"),
-                        html.H3(value, className="mb-0"),
-                    ]
-                )
-            ),
-            xs=6,
-            md=3,
-        )
-
     return [
-        card("Requests/s (latest)", f"{stats['latest_requests']}"),
-        card("p95 latency", f"{stats['p95_latency_ms']:.0f} ms"),
+        kpi_card("Requests/s (latest)", f"{stats['latest_requests']}"),
+        kpi_card("p95 latency", f"{stats['p95_latency_ms']:.0f} ms"),
     ]
 
 
@@ -68,19 +46,14 @@ def make_figure(points: list, template: str = "plotly_white") -> go.Figure:
         tickmode="auto", nticks=6, tickformat=".0f",
     )
     fig.update_layout(
-        template=template,
         legend={"orientation": "h", "y": 1.12, "x": 0},
         margin={"l": 60, "r": 60, "t": 40, "b": 50},
     )
-    return fig
+    return style_figure(fig, template)
 
 
 def create_app(seed=None, interval_ms=2000, prefill=60, clock=None, theme=DEFAULT_THEME) -> Flask:
-    theme = theme.upper()
-    if theme not in THEMES:
-        raise ValueError(f"unknown theme {theme!r}; choose one of {', '.join(THEMES)}")
-    template = theme.lower()
-    load_figure_template(template)
+    stylesheet, template = resolve_theme(theme)
 
     server = Flask(__name__)
     kwargs = {} if clock is None else {"clock": clock}
@@ -103,7 +76,7 @@ def create_app(seed=None, interval_ms=2000, prefill=60, clock=None, theme=DEFAUL
         __name__,
         server=server,
         routes_pathname_prefix="/dash/",
-        external_stylesheets=[getattr(dbc.themes, theme)],
+        external_stylesheets=[stylesheet],
         title="Live metrics",
     )
     dash_app.layout = dbc.Container(
@@ -144,6 +117,6 @@ def create_app(seed=None, interval_ms=2000, prefill=60, clock=None, theme=DEFAUL
 
 
 if __name__ == "__main__":
-    create_app(theme=os.environ.get("LIVE_METRICS_THEME", DEFAULT_THEME)).run(
+    create_app(theme=theme_from_env()).run(
         debug=True, port=int(os.environ.get("PORT", 5001))
     )

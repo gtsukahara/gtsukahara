@@ -2,9 +2,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from task_tracker.app import create_app, seed_demo
-from task_tracker.models import Task
-from task_tracker import stats
+import dash_bootstrap_components as dbc
+
+from examples.task_tracker import stats
+from examples.task_tracker.app import create_app, seed_demo
+from examples.task_tracker.dashboard import kpi_cards, per_day_figure, priority_figure
+from examples.theme import COLORWAY
+from examples.task_tracker.models import Task
 
 NOW = datetime(2026, 10, 7, 12, 0)
 
@@ -146,6 +150,43 @@ def test_dash_layout_mounted(client):
     assert "Task tracker" in str(client.get("/dash/_dash-layout").get_json())
 
 
+def test_dash_priority_can_arrive_as_a_string(client):
+    assert update(client, n_clicks=1, priority="3").status_code == 200
+    assert client.get("/api/tasks").get_json()[0]["priority"] == 3
+
+
+def test_dash_invalid_priority_falls_back_to_default(client):
+    assert update(client, n_clicks=1, priority="9").status_code == 200
+    assert client.get("/api/tasks").get_json()[0]["priority"] == 2
+
+
+def test_kpi_cards_show_values():
+    text = str(kpi_cards({"open": 4, "completed_this_week": 2, "avg_hours_to_complete": 12.5}))
+    assert "12.5 h" in text and "'4'" in text and "'2'" in text
+
+
+def test_charts_use_the_shared_palette_not_the_theme_colours():
+    import pandas as pd
+
+    bar = per_day_figure(pd.DataFrame({"day": ["a", "b"], "completed": [1, 2]}))
+    assert bar.data[0].marker.color == COLORWAY[0]
+    pie = priority_figure({1: 2, 2: 1, 3: 0})
+    assert list(pie.layout.piecolorway) == COLORWAY
+    assert list(pie.data[0].labels) == ["Priority 1", "Priority 2"]  # empty slice skipped
+
+
+def test_pie_with_no_open_tasks_says_so():
+    fig = priority_figure({1: 0, 2: 0, 3: 0})
+    assert [a.text for a in fig.layout.annotations] == ["No open tasks"]
+
+
+def test_page_links_the_chosen_theme_and_rejects_unknown_ones():
+    html = create_app("sqlite://", theme="flatly").test_client().get("/dash/").get_data(as_text=True)
+    assert dbc.themes.FLATLY in html
+    with pytest.raises(ValueError, match="unknown theme"):
+        create_app("sqlite://", theme="neon")
+
+
 def test_dash_add_task_callback(client):
     first = update(client, n_clicks=0)  # initial load: nothing added
     assert first.status_code == 200
@@ -154,7 +195,8 @@ def test_dash_add_task_callback(client):
     resp = update(client, n_clicks=1)
     assert resp.status_code == 200
     body = resp.get_json()["response"]
-    assert "Open: 1" in body["kpis"]["children"]
+    cards = str(body["kpis"]["children"])
+    assert "Open" in cards and "Completed this week" in cards and "Avg time to complete" in cards
     assert body["title"]["value"] == ""
     tasks = client.get("/api/tasks").get_json()
     assert [(t["title"], t["priority"]) for t in tasks] == [("Ship it", 1)]
