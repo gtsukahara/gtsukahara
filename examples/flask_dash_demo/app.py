@@ -3,7 +3,7 @@
 Flask serves a landing page and a JSON API; Dash is mounted on the same
 Flask server under /dash/ and renders an interactive chart from the same data.
 
-Run:  python app.py   ->  http://127.0.0.1:5000/
+Run from the repo root:  python -m examples.flask_dash_demo.app  ->  http://127.0.0.1:5003/
 """
 import pandas as pd
 import plotly.express as px
@@ -57,4 +57,4 @@ def create_app() -> Flask:
 
 
 if __name__ == "__main__":
-    create_app().run(debug=True)
+    create_app().run(debug=True, port=5003)

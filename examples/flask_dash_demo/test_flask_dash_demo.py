@@ -1,4 +1,4 @@
-from app import SALES, create_app
+from flask_dash_demo.app import SALES, create_app
 
 
 def client():
