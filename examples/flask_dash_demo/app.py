@@ -12,7 +12,7 @@ import plotly.express as px
 from dash import Dash, Input, Output, dcc, html
 from flask import Flask, jsonify
 
-from ..theme import COLORWAY, DEFAULT_THEME, resolve_theme, style_figure, theme_from_env
+from ..theme import COLORWAY, DEFAULT_THEME, graph_card, resolve_theme, style_figure, theme_from_env
 
 SALES = pd.DataFrame(
     {
@@ -68,7 +68,7 @@ def create_app(theme=DEFAULT_THEME) -> Flask:
                 ),
                 className="mb-3",
             ),
-            dbc.Card(dbc.CardBody(dcc.Graph(id="chart", config={"displayModeBar": False}))),
+            graph_card(dcc.Graph(id="chart", config={"displayModeBar": False})),
         ],
         fluid="lg",
         className="pb-4",

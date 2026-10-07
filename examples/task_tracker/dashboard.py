@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 from dash import Dash, Input, Output, State, dcc, html
 
-from ..theme import COLORWAY, kpi_card, style_figure
+from ..theme import COLORWAY, graph_card, kpi_card, style_figure
 from . import stats
 from .models import Task
 
@@ -28,7 +28,6 @@ def per_day_figure(per_day):
         per_day, x="day", y="completed", title="Completed per day (last 14 days)",
         color_discrete_sequence=COLORWAY,
     )
-    fig.update_layout(margin={"r": 20})
     if per_day["completed"].max() <= 6:
         fig.update_yaxes(dtick=1)  # whole tasks only
     return fig
@@ -82,8 +81,8 @@ def register_dashboard(server, stylesheet, template):
             dbc.Row(id="kpis", className="g-3 mb-3"),
             dbc.Row(
                 [
-                    dbc.Col(dbc.Card(dbc.CardBody(dcc.Graph(id="per-day", config={"displayModeBar": False}))), md=8),
-                    dbc.Col(dbc.Card(dbc.CardBody(dcc.Graph(id="by-priority", config={"displayModeBar": False}))), md=4),
+                    dbc.Col(graph_card(dcc.Graph(id="per-day", config={"displayModeBar": False})), md=8),
+                    dbc.Col(graph_card(dcc.Graph(id="by-priority", config={"displayModeBar": False})), md=4),
                 ],
                 className="g-3",
             ),
