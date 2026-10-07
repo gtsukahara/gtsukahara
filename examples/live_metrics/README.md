@@ -1,47 +1,37 @@
-# Live metrics dashboard (outline)
+# Live metrics dashboard
 
-Status: **outline only, nothing implemented yet.**
+Flask serves a JSON API over a simulated metrics stream; Dash is mounted on the
+same server at `/dash/` and refreshes itself every 2 seconds.
 
-Flask produces simulated metrics; Dash polls it and redraws charts automatically.
-Smallest example of Flask and Dash cooperating over a real HTTP boundary.
-
-## Goal
-Show a Dash page that refreshes every few seconds from a Flask JSON endpoint.
+- `GET /api/metrics?window=60` returns the last N points
+  (`ts`, `cpu`, `requests`, `latency_ms`) and adds one new point per call
+- `GET /api/health` returns `{"status": "ok"}`
+- `/dash/` shows a line chart (cpu, latency), a KPI row (requests/s, p95 latency)
+  and a window-size dropdown
 
 ## Layout
 ```
-examples/live_metrics/
-  app.py          # create_app(): Flask routes + Dash mounted at /dash/
-  metrics.py      # generator for simulated data (pure functions, seedable)
-  test_app.py
+metrics.py          # seedable random-walk generator, p95 and KPI helpers
+app.py              # create_app(): Flask routes + Dash mounted at /dash/
+test_live_metrics.py
 ```
 
-## Flask side
-- `GET /api/metrics?window=60` returns the last N points as
-  `[{"ts": ISO8601, "cpu": float, "requests": int, "latency_ms": float}]`
-- `GET /api/health` returns `{"status": "ok"}`
-- `metrics.py` keeps a bounded in-memory deque and appends a new random-walk
-  point per call, seeded for deterministic tests
+## Run
+From the repo root, in a venv with `requirements.txt` installed:
 
-## Dash side
-- `dcc.Interval(interval=2000)` triggers a callback
-- Callback calls the metrics function directly (same process) and returns:
-  - a line chart (cpu, latency) via `plotly.express`
-  - a KPI row (latest requests/s, p95 latency)
-- Dropdown for window size (30s / 60s / 5m)
+```bash
+python -m examples.live_metrics.app
+```
 
-## Tests
-- `/api/metrics` returns the requested window length and expected keys
-- seeded generator is deterministic
-- Dash layout contains the Interval and Graph components
+Then open http://127.0.0.1:5001/dash/ .
 
-## Build steps
-1. `metrics.py` generator plus unit tests
-2. Flask API routes
-3. Dash layout and interval callback
-4. Window-size dropdown, KPI row
-5. README run instructions
+## Test
+```bash
+pytest examples/live_metrics
+```
 
-## Open questions
-- Call the generator directly from Dash, or over HTTP to `/api/metrics`? (direct is simpler; HTTP shows a realistic boundary)
-- Keep state per process only, or persist to SQLite?
+## Design notes
+- Dash calls the stream directly (same process) rather than over HTTP. That
+  keeps the demo small; the HTTP API exists for other clients.
+- State is in memory per process (bounded to 600 points). Persisting to SQLite
+  would be a natural next step.
