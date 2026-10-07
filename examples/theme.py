@@ -41,9 +41,26 @@ def resolve_theme(theme: str):
 
 
 def style_figure(fig, template: str):
-    """Apply the theme's template and the shared palette to a Plotly figure."""
-    fig.update_layout(template=template, colorway=COLORWAY)
+    """Apply the theme's template and palette, with margins that suit narrow screens.
+
+    Axes size their own margins to fit their labels (``automargin``), the outer margins are small, and
+    the legend sits above the plot instead of beside it, so phones keep most of the width for the data.
+    """
+    has_title = bool(fig.layout.title.text)
+    fig.update_layout(
+        template=template,
+        colorway=COLORWAY,
+        margin={"l": 8, "r": 8, "t": 70 if has_title else 40, "b": 8},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
+    )
+    fig.update_xaxes(automargin=True)
+    fig.update_yaxes(automargin=True)
     return fig
+
+
+def graph_card(graph):
+    """A card around a dcc.Graph, with tighter padding on phones."""
+    return dbc.Card(dbc.CardBody(graph, className="p-1 p-md-3"))
 
 
 def kpi_card(label: str, value: str):

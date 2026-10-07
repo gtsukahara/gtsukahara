@@ -16,7 +16,7 @@ from dash import Dash, Input, Output, dcc, html
 from flask import Flask, jsonify, request
 from plotly.subplots import make_subplots
 
-from ..theme import DEFAULT_THEME, kpi_card, resolve_theme, style_figure, theme_from_env
+from ..theme import DEFAULT_THEME, graph_card, kpi_card, resolve_theme, style_figure, theme_from_env
 from .metrics import MetricsStream, kpis
 
 MAXLEN = 600  # one point per second, so 10 minutes
@@ -39,15 +39,11 @@ def make_figure(points: list, template: str = "plotly_white") -> go.Figure:
     fig.add_trace(
         go.Scatter(x=ts, y=[p["latency_ms"] for p in points], name="Latency (ms)"), secondary_y=True
     )
-    fig.update_xaxes(title_text="Time (UTC)")
+    fig.update_xaxes(title_text="Time (UTC)", tickformat="%H:%M:%S", nticks=5)
     fig.update_yaxes(title_text="CPU (%)", range=[0, 100], secondary_y=False)
     fig.update_yaxes(
         title_text="Latency (ms)", secondary_y=True, showgrid=False,
         tickmode="auto", nticks=6, tickformat=".0f",
-    )
-    fig.update_layout(
-        legend={"orientation": "h", "y": 1.12, "x": 0},
-        margin={"l": 60, "r": 60, "t": 40, "b": 50},
     )
     return style_figure(fig, template)
 
@@ -95,7 +91,7 @@ def create_app(seed=None, interval_ms=2000, prefill=60, clock=None, theme=DEFAUL
                 className="mb-3",
             ),
             dbc.Row(id="kpis", className="g-3 mb-3"),
-            dbc.Card(dbc.CardBody(dcc.Graph(id="chart", config={"displayModeBar": False}))),
+            graph_card(dcc.Graph(id="chart", config={"displayModeBar": False})),
             dcc.Interval(id="tick", interval=interval_ms),
         ],
         fluid="lg",
