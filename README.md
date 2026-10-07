@@ -1,5 +1,5 @@
 <h2 align="center">Greg Tsukahara</h2>
-<h4 align="center">Data Engineer, Strategic Finance & Ecosystem Analytics</h4>
+<h4 align="center">Analytics Engineer, Strategic Finance & Ecosystem BI Analytics</h4>
 
 <h3 align="left">Connect with me:</h3>
 <p align="left">
