@@ -1,52 +1,50 @@
-# Task tracker with stats (outline)
+# Task tracker with stats
 
-Status: **outline only, nothing implemented yet.**
+Flask + SQLAlchemy provide a CRUD API for tasks; a Dash page at `/dash/` shows
+completion trends. Uses the `sqlalchemy` pin already in `requirements.txt`.
 
-Flask plus SQLAlchemy handle CRUD for tasks; a Dash page shows completion trends.
-Uses the `sqlalchemy==2.0.20` pin already in `requirements.txt`.
+## API
+- `GET /api/tasks?status=open|done`
+- `POST /api/tasks` with `{"title": "...", "priority": 1-3}` (priority defaults to 2)
+- `PATCH /api/tasks/<id>` with `{"status": "open"|"done"}` (sets or clears `completed_at`)
+- `DELETE /api/tasks/<id>`
 
-## Goal
-Create, complete and delete tasks through a Flask API, and see throughput charts in Dash.
+Validation: non-empty title (max 200 chars), integer priority 1-3, 400 for bad
+input, 404 for unknown ids.
+
+## Dash page (`/dash/`)
+- Bar chart: tasks completed per day, last 14 days
+- Pie chart: open tasks by priority
+- KPIs: open count, completed this week, average time to complete
+- Add-task form that creates a task and refreshes the charts
 
 ## Layout
 ```
-examples/task_tracker/
-  app.py          # create_app(config): Flask app, DB setup, Dash mount
-  models.py       # SQLAlchemy 2.0 declarative model: Task
-  api.py          # Flask blueprint with CRUD routes
-  dashboard.py    # Dash layout and callbacks
-  test_app.py
+models.py     # SQLAlchemy 2.0 Task model, session factory
+api.py        # Flask blueprint with the CRUD routes
+stats.py      # plain stats queries (completed_per_day, open_by_priority, kpis)
+dashboard.py  # Dash layout and callback
+app.py        # create_app(db_url), demo seed data, entry point
+test_task_tracker.py
 ```
 
-## Data model
-`Task(id, title, status["open"|"done"], created_at, completed_at, priority 1-3)`
-SQLite file for the demo; in-memory SQLite (`sqlite://`) in tests.
+## Run
+From the repo root, in a venv with `requirements.txt` installed:
 
-## Flask API
-- `GET /api/tasks?status=open|done`
-- `POST /api/tasks` with `{title, priority}`
-- `PATCH /api/tasks/<id>` with `{status}` (sets `completed_at` when done)
-- `DELETE /api/tasks/<id>`
-- Basic validation: non-empty title, priority 1-3, 404 for unknown id
+```bash
+python -m examples.task_tracker.app
+```
 
-## Dash page (`/dash/`)
-- Bar: tasks completed per day (last 14 days)
-- Pie: open tasks by priority
-- KPI: open count, completed this week, average time to complete
-- Optional: input box that POSTs a new task, then refreshes the charts
+Then open http://127.0.0.1:5002/dash/ . This creates `tasks.db` in the current
+directory (git-ignored) and seeds sample tasks if it is empty.
 
-## Tests
-- CRUD round trip against in-memory DB
-- validation errors return 400/404
-- stats query returns the expected counts for a seeded set of tasks
+## Test
+```bash
+pytest examples/task_tracker
+```
+Tests use in-memory SQLite.
 
-## Build steps
-1. `models.py` and DB session handling
-2. CRUD blueprint with tests
-3. Stats queries (plain functions, unit-tested)
-4. Dash charts on top of the stats queries
-5. Optional add-task form
-
-## Open questions
-- Use Flask-SQLAlchemy, or plain SQLAlchemy with a per-request session? (plain keeps dependencies as they are)
-- Authentication: out of scope for the first draft
+## Design notes
+- Plain SQLAlchemy with one session per request, not Flask-SQLAlchemy, to keep dependencies as they are.
+- Timestamps are naive UTC because SQLite does not store timezone info.
+- No authentication; out of scope for this example.
