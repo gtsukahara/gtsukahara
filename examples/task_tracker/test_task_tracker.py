@@ -73,6 +73,36 @@ def test_update_and_delete_errors(client):
     assert client.get("/api/tasks?status=bogus").status_code == 400
 
 
+def test_patch_edits_title_and_priority(client):
+    task_id = client.post("/api/tasks", json={"title": "old", "priority": 3}).get_json()["id"]
+    edited = client.patch(f"/api/tasks/{task_id}", json={"title": " new ", "priority": 1}).get_json()
+    assert (edited["title"], edited["priority"], edited["status"]) == ("new", 1, "open")
+
+
+def test_patch_can_change_several_fields_at_once(client):
+    task_id = client.post("/api/tasks", json={"title": "old"}).get_json()["id"]
+    done = client.patch(f"/api/tasks/{task_id}", json={"title": "x", "status": "done"}).get_json()
+    assert done["title"] == "x" and done["completed_at"] is not None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"title": ""}, {"priority": 0}, {"priority": "2"}, {"status": "bogus"}, {"colour": "red"},
+     {"title": "ok", "priority": 99}],
+)
+def test_patch_validation(client, body):
+    task_id = client.post("/api/tasks", json={"title": "keep", "priority": 2}).get_json()["id"]
+    assert client.patch(f"/api/tasks/{task_id}", json=body).status_code == 400
+    unchanged = client.get("/api/tasks").get_json()[0]
+    assert (unchanged["title"], unchanged["priority"]) == ("keep", 2)  # nothing half-applied
+
+
+def test_patch_error_messages_are_specific(client):
+    task_id = client.post("/api/tasks", json={"title": "a"}).get_json()["id"]
+    assert "unknown field" in client.patch(f"/api/tasks/{task_id}", json={"colour": 1}).get_json()["error"]
+    assert "nothing to update" in client.patch(f"/api/tasks/{task_id}", json={}).get_json()["error"]
+
+
 # --- stats ----------------------------------------------------------------
 
 @pytest.fixture
