@@ -19,6 +19,8 @@ input, 404 for unknown ids.
 - Pie chart: open tasks by priority
 - KPIs: open count, completed this week, average time to complete
 - **All tasks** table (AG Grid): sortable, filterable, paged; open tasks first, done tasks dimmed
+- **Click a bar** (tasks completed that day) **or a pie slice** (open tasks of that priority) to filter the table.
+  Click the same bar or slice again, or press Clear filter, to remove the filter.
 - **Click any row** to open a detail panel: edit the title, priority and status, then Save, or Delete (with a
   confirmation). Bad input shows an error in the panel and changes nothing.
 - Add-task form that creates a task and refreshes the charts, KPIs and table
@@ -57,6 +59,9 @@ Tests use in-memory SQLite.
 - The table uses `dash-ag-grid`, not `dash_table.DataTable`, which Dash 4 has deprecated.
 - A grid click event carries only the row's id (`rowId`), not its data. Rows therefore get a string `key` (`getRowId`),
   and the panel always loads the task from the database, so it never shows stale grid data.
+- The chart-click filter lives in a `table-filter` store. `refresh` redraws the charts and KPIs; `refresh_table` redraws
+  only the table, so a filter change does not re-render the charts. After each click the callback resets both
+  charts' `clickData`, which is what lets the same bar or slice be clicked again later.
 - Edits and deletes bump a separate `edits` counter (the add form bumps `version`); `refresh` listens to both, so no
   output has two writers.
 - Plain SQLAlchemy with one session per request, not Flask-SQLAlchemy, to keep dependencies as they are.

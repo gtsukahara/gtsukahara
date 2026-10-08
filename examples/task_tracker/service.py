@@ -3,8 +3,10 @@
 Each function takes a SQLAlchemy ``Session`` and commits its own change, so the
 validation rules live in one place and are tested once.
 """
+from datetime import date
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import STATUSES, Task, utcnow
@@ -42,12 +44,22 @@ def validate_status(status) -> str:
     return status
 
 
-def list_tasks(session: Session, status: Optional[str] = None) -> list:
-    if status is not None:
-        validate_status(status)
+def list_tasks(
+    session: Session,
+    status: Optional[str] = None,
+    priority: Optional[int] = None,
+    completed_on: Optional[date] = None,
+) -> list:
+    """Tasks in id order, optionally narrowed by status, priority, or the (UTC) day they were completed."""
     query = session.query(Task).order_by(Task.id)
-    if status:
-        query = query.filter(Task.status == status)
+    if status is not None:
+        query = query.filter(Task.status == validate_status(status))
+    if priority is not None:
+        query = query.filter(Task.priority == validate_priority(priority))
+    if completed_on is not None:
+        if not isinstance(completed_on, date):
+            raise ValidationError("completed_on must be a date")
+        query = query.filter(Task.status == "done", func.date(Task.completed_at) == completed_on.isoformat())
     return list(query)
 
 

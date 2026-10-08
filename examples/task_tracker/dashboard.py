@@ -1,4 +1,6 @@
 """Dash page: completion trend, open tasks by priority, KPIs, add-task form."""
+from datetime import date
+
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -78,6 +80,47 @@ def meta_text(task) -> str:
     if task.completed_at:
         text += f"  ·  Completed {task.completed_at.strftime('%Y-%m-%d %H:%M')} UTC"
     return text
+
+
+def filter_from_click(kind: str, click_data):
+    """Turn a chart click into a table filter, or None if the click does not identify one.
+
+    ``kind`` is "day" (the completed-per-day bars) or "priority" (the pie slices).
+    """
+    try:
+        point = click_data["points"][0]
+        if kind == "day":
+            return {"kind": "day", "value": date.fromisoformat(str(point["x"])[:10]).isoformat()}
+        label = str(point["label"])  # e.g. "Priority 2"
+        return {"kind": "priority", "value": int(label.rsplit(" ", 1)[1])}
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def filter_kwargs(table_filter) -> dict:
+    """Keyword arguments for ``service.list_tasks``; an invalid or empty filter means no filtering."""
+    try:
+        if table_filter["kind"] == "day":
+            return {"completed_on": date.fromisoformat(table_filter["value"])}
+        if table_filter["kind"] == "priority" and table_filter["value"] in (1, 2, 3):
+            return {"status": "open", "priority": table_filter["value"]}
+    except (KeyError, TypeError, ValueError):
+        pass
+    return {}
+
+
+FILTER_HINT = "Click a bar or a pie slice to filter this table."
+
+
+def describe_filter(table_filter, count: int):
+    """(label text, style for the Clear button) for the filter bar above the table."""
+    kwargs = filter_kwargs(table_filter)
+    noun = "task" if count == 1 else "tasks"
+    if "completed_on" in kwargs:
+        return f"Completed on {kwargs['completed_on'].isoformat()}: {count} {noun}", {}
+    if "priority" in kwargs:
+        return f"Open, priority {kwargs['priority']}: {count} {noun}", {}
+    return FILTER_HINT, {"display": "none"}
 
 
 def clicked_task_id(clicked):
@@ -218,7 +261,17 @@ def register_dashboard(server, stylesheet, template):
                     dbc.Card(
                         dbc.CardBody(
                             [
-                                html.H5("All tasks", className="mb-3"),
+                                html.Div(
+                                    [
+                                        html.H5("All tasks", className="mb-0 me-3"),
+                                        html.Span(FILTER_HINT, id="filter-label", className="text-muted small"),
+                                        dbc.Button(
+                                            "Clear filter", id="clear-filter", n_clicks=0, size="sm",
+                                            outline=True, color="light", className="ms-2", style={"display": "none"},
+                                        ),
+                                    ],
+                                    className="d-flex align-items-center flex-wrap mb-3",
+                                ),
                                 task_grid(),
                             ]
                         )
@@ -229,6 +282,7 @@ def register_dashboard(server, stylesheet, template):
             detail_panel(),
             dcc.Store(id="version", data=0),
             dcc.Store(id="edits", data=0),
+            dcc.Store(id="table-filter", data=None),
             dcc.Store(id="selected-id", data=None),
         ],
         fluid="lg",
@@ -255,7 +309,6 @@ def register_dashboard(server, stylesheet, template):
         Output("per-day", "figure"),
         Output("by-priority", "figure"),
         Output("kpis", "children"),
-        Output("task-table", "rowData"),
         Input("version", "data"),
         Input("edits", "data"),
     )
@@ -264,13 +317,50 @@ def register_dashboard(server, stylesheet, template):
             per_day = pd.DataFrame(stats.completed_per_day(s), columns=["day", "completed"])
             prio = stats.open_by_priority(s)
             k = stats.kpis(s)
-            rows = table_rows(service.list_tasks(s))
         return (
             style_figure(per_day_figure(per_day), template),
             style_figure(priority_figure(prio), template),
             kpi_cards(k),
-            rows,
         )
+
+    @dash_app.callback(
+        Output("task-table", "rowData"),
+        Output("filter-label", "children"),
+        Output("clear-filter", "style"),
+        Input("version", "data"),
+        Input("edits", "data"),
+        Input("table-filter", "data"),
+    )
+    def refresh_table(_version, _edits, table_filter):
+        with factory() as s:
+            rows = table_rows(service.list_tasks(s, **filter_kwargs(table_filter)))
+        label, style = describe_filter(table_filter, len(rows))
+        return rows, label, style
+
+    @dash_app.callback(
+        Output("table-filter", "data"),
+        Output("per-day", "clickData"),
+        Output("by-priority", "clickData"),
+        Input("per-day", "clickData"),
+        Input("by-priority", "clickData"),
+        Input("clear-filter", "n_clicks"),
+        State("table-filter", "data"),
+        prevent_initial_call=True,
+    )
+    def set_filter(day_click, priority_click, _clear, current):
+        trigger = ctx.triggered_id
+        if trigger == "clear-filter":
+            new = None
+        elif trigger == "per-day":
+            new = filter_from_click("day", day_click)
+        else:
+            new = filter_from_click("priority", priority_click)
+        if new is None and trigger != "clear-filter":
+            return no_update, no_update, no_update  # e.g. the reset below, or a click that is not on a bar/slice
+        if new == current:
+            new = None  # clicking the active bar/slice again clears the filter
+        # Reset both clickData values so the same bar or slice can be clicked again later.
+        return new, None, None
 
     NO_CHANGE = (no_update,) * 8
 
