@@ -6,7 +6,7 @@ import dash_bootstrap_components as dbc
 
 from examples.task_tracker import stats
 from examples.task_tracker.app import create_app, seed_demo
-from examples.task_tracker.dashboard import kpi_cards, per_day_figure, priority_figure
+from examples.task_tracker.dashboard import kpi_cards, per_day_figure, priority_figure, table_rows
 from examples.theme import COLORWAY
 from examples.task_tracker.models import Task
 
@@ -157,21 +157,37 @@ def test_seed_demo_is_idempotent(server):
 
 # --- dashboard ------------------------------------------------------------
 
-def update(client, n_clicks, title="Ship it", priority=1):
+def add(client, n_clicks=1, title="Ship it", priority=1, version=0):
+    """Fire the add-task callback the way the browser does."""
     payload = {
-        "output": "..per-day.figure...by-priority.figure...kpis.children...title.value..",
+        "output": "..version.data...title.value..",
         "outputs": [
-            {"id": "per-day", "property": "figure"},
-            {"id": "by-priority", "property": "figure"},
-            {"id": "kpis", "property": "children"},
+            {"id": "version", "property": "data"},
             {"id": "title", "property": "value"},
         ],
         "inputs": [{"id": "add", "property": "n_clicks", "value": n_clicks}],
         "state": [
             {"id": "title", "property": "value", "value": title},
             {"id": "priority", "property": "value", "value": priority},
+            {"id": "version", "property": "data", "value": version},
         ],
         "changedPropIds": ["add.n_clicks"],
+    }
+    return client.post("/dash/_dash-update-component", json=payload)
+
+
+def refresh(client, version=0):
+    """Fire the refresh callback (what runs on page load and after every change)."""
+    payload = {
+        "output": "..per-day.figure...by-priority.figure...kpis.children...task-table.rowData..",
+        "outputs": [
+            {"id": "per-day", "property": "figure"},
+            {"id": "by-priority", "property": "figure"},
+            {"id": "kpis", "property": "children"},
+            {"id": "task-table", "property": "rowData"},
+        ],
+        "inputs": [{"id": "version", "property": "data", "value": version}],
+        "changedPropIds": ["version.data"],
     }
     return client.post("/dash/_dash-update-component", json=payload)
 
@@ -180,14 +196,75 @@ def test_dash_layout_mounted(client):
     assert "Task tracker" in str(client.get("/dash/_dash-layout").get_json())
 
 
+def test_add_callback_creates_a_task_bumps_the_version_and_clears_the_input(client):
+    resp = add(client, title="Ship it", priority=1, version=4)
+    assert resp.status_code == 200
+    body = resp.get_json()["response"]
+    assert body["version"]["data"] == 5
+    assert body["title"]["value"] == ""
+    assert [(t["title"], t["priority"]) for t in client.get("/api/tasks").get_json()] == [("Ship it", 1)]
+
+
+@pytest.mark.parametrize("title", ["", "   ", None])
+def test_add_callback_ignores_a_blank_title(client, title):
+    resp = add(client, title=title)
+    assert resp.status_code == 200
+    assert resp.get_json()["response"] == {}  # no_update on every output: version unchanged, input not cleared
+    assert client.get("/api/tasks").get_json() == []
+
+
 def test_dash_priority_can_arrive_as_a_string(client):
-    assert update(client, n_clicks=1, priority="3").status_code == 200
+    assert add(client, priority="3").status_code == 200
     assert client.get("/api/tasks").get_json()[0]["priority"] == 3
 
 
 def test_dash_invalid_priority_falls_back_to_default(client):
-    assert update(client, n_clicks=1, priority="9").status_code == 200
+    assert add(client, priority="9").status_code == 200
     assert client.get("/api/tasks").get_json()[0]["priority"] == 2
+
+
+def test_add_callback_truncates_an_overlong_title(client):
+    assert add(client, title="x" * 500).status_code == 200
+    assert len(client.get("/api/tasks").get_json()[0]["title"]) == 200
+
+
+def test_refresh_returns_figures_kpis_and_table_rows(client):
+    client.post("/api/tasks", json={"title": "one", "priority": 1})
+    client.post("/api/tasks", json={"title": "two", "priority": 3})
+    body = refresh(client).get_json()["response"]
+    assert len(body["per-day"]["figure"]["data"]) == 1
+    assert "Open" in str(body["kpis"]["children"])
+    assert [r["title"] for r in body["task-table"]["rowData"]] == ["one", "two"]
+
+
+def test_a_task_added_through_the_dashboard_shows_up_in_the_table(client):
+    add(client, title="From the form")
+    rows = refresh(client, version=1).get_json()["response"]["task-table"]["rowData"]
+    assert [r["title"] for r in rows] == ["From the form"]
+
+
+def test_table_rows_order_open_first_then_priority_then_newest():
+    def task(id_, status, priority):
+        t = Task(id=id_, title=f"t{id_}", status=status, priority=priority, created_at=NOW)
+        t.completed_at = NOW if status == "done" else None
+        return t
+
+    rows = table_rows([task(1, "done", 1), task(2, "open", 3), task(3, "open", 1), task(4, "open", 1)])
+    assert [r["id"] for r in rows] == [4, 3, 2, 1]
+
+
+def test_table_row_shape_and_date_format():
+    t = Task(id=7, title="x", status="done", priority=2, created_at=datetime(2026, 1, 2, 3, 4), completed_at=datetime(2026, 1, 5, 6, 7))
+    assert table_rows([t]) == [
+        {"id": 7, "title": "x", "priority": 2, "status": "done", "created": "2026-01-02 03:04", "completed": "2026-01-05 06:07"}
+    ]
+    t.completed_at = None
+    assert table_rows([t])[0]["completed"] == ""
+
+
+def test_the_grid_is_mounted_with_an_id_per_row(client):
+    layout = str(client.get("/dash/_dash-layout").get_json())
+    assert "AgGrid" in layout and "task-table" in layout and "String(params.data.id)" in layout
 
 
 def test_kpi_cards_show_values():
@@ -215,18 +292,3 @@ def test_page_links_the_chosen_theme_and_rejects_unknown_ones():
     assert dbc.themes.FLATLY in html
     with pytest.raises(ValueError, match="unknown theme"):
         create_app("sqlite://", theme="neon")
-
-
-def test_dash_add_task_callback(client):
-    first = update(client, n_clicks=0)  # initial load: nothing added
-    assert first.status_code == 200
-    assert client.get("/api/tasks").get_json() == []
-
-    resp = update(client, n_clicks=1)
-    assert resp.status_code == 200
-    body = resp.get_json()["response"]
-    cards = str(body["kpis"]["children"])
-    assert "Open" in cards and "Completed this week" in cards and "Avg time to complete" in cards
-    assert body["title"]["value"] == ""
-    tasks = client.get("/api/tasks").get_json()
-    assert [(t["title"], t["priority"]) for t in tasks] == [("Ship it", 1)]
