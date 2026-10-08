@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -134,3 +134,44 @@ def test_unset_is_distinct_from_none(session):
     with pytest.raises(ValidationError):
         service.update_task(session, task.id, title=None)  # None is a value, not "not provided"
     assert UNSET is not None
+
+
+# --- list filters ---------------------------------------------------------
+
+def _seed(session):
+    day1, day2 = datetime(2026, 10, 1, 23, 59), datetime(2026, 10, 2, 0, 1)
+    rows = [
+        ("open p1", "open", 1, None), ("open p3", "open", 3, None), ("open p3b", "open", 3, None),
+        ("done p1 day1", "done", 1, day1), ("done p3 day2", "done", 3, day2), ("done p1 day2", "done", 1, day2),
+    ]
+    for title, status, priority, completed in rows:
+        session.add(Task(title=title, status=status, priority=priority, created_at=datetime(2026, 9, 1), completed_at=completed))
+    session.commit()
+
+
+def _titles(tasks):
+    return [t.title for t in tasks]
+
+
+def test_list_filters_by_priority(session):
+    _seed(session)
+    assert _titles(service.list_tasks(session, priority=3)) == ["open p3", "open p3b", "done p3 day2"]
+
+
+def test_list_filters_by_completion_day_and_only_returns_done_tasks(session):
+    _seed(session)
+    assert _titles(service.list_tasks(session, completed_on=date(2026, 10, 2))) == ["done p3 day2", "done p1 day2"]
+    assert _titles(service.list_tasks(session, completed_on=date(2026, 10, 1))) == ["done p1 day1"]  # 23:59 stays on day 1
+    assert service.list_tasks(session, completed_on=date(2026, 12, 25)) == []
+
+
+def test_list_filters_combine(session):
+    _seed(session)
+    assert _titles(service.list_tasks(session, status="open", priority=3)) == ["open p3", "open p3b"]
+    assert _titles(service.list_tasks(session, priority=1, completed_on=date(2026, 10, 2))) == ["done p1 day2"]
+
+
+def test_list_rejects_bad_filter_values(session):
+    for kwargs in ({"priority": 7}, {"priority": "1"}, {"status": "x"}, {"completed_on": "2026-10-01"}):
+        with pytest.raises(ValidationError):
+            service.list_tasks(session, **kwargs)
