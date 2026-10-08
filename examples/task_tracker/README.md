@@ -19,6 +19,8 @@ input, 404 for unknown ids.
 - Pie chart: open tasks by priority
 - KPIs: open count, completed this week, average time to complete
 - **All tasks** table (AG Grid): sortable, filterable, paged; open tasks first, done tasks dimmed
+- **Click any row** to open a detail panel: edit the title, priority and status, then Save, or Delete (with a
+  confirmation). Bad input shows an error in the panel and changes nothing.
 - Add-task form that creates a task and refreshes the charts, KPIs and table
 - Styled with the shared theme (see `examples/theme.py`); choose another with `EXAMPLES_THEME=FLATLY`
 
@@ -53,6 +55,10 @@ Tests use in-memory SQLite.
 - The dashboard has two callbacks: one that writes (add) and bumps a `version` store, and one that reads and redraws
   everything when `version` changes. Later edit/delete actions just bump the same counter.
 - The table uses `dash-ag-grid`, not `dash_table.DataTable`, which Dash 4 has deprecated.
+- A grid click event carries only the row's id (`rowId`), not its data. Rows therefore get a string `key` (`getRowId`),
+  and the panel always loads the task from the database, so it never shows stale grid data.
+- Edits and deletes bump a separate `edits` counter (the add form bumps `version`); `refresh` listens to both, so no
+  output has two writers.
 - Plain SQLAlchemy with one session per request, not Flask-SQLAlchemy, to keep dependencies as they are.
 - Charts pass the shared palette to Plotly Express explicitly (`px` fixes marker colours when it builds a figure, so a
   layout-level palette alone would not recolour the bars and slices).

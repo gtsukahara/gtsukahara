@@ -3,10 +3,11 @@ import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import Dash, Input, Output, State, dcc, html, no_update
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 
 from ..theme import COLORWAY, graph_card, kpi_card, style_figure
 from . import service, stats
+from .service import TaskNotFound, ValidationError
 
 
 def kpi_cards(k: dict) -> list:
@@ -23,6 +24,7 @@ def table_rows(tasks) -> list:
     return [
         {
             "id": t.id,
+            "key": str(t.id),  # AG Grid row ids must be strings, and dash-ag-grid only reads plain property paths
             "title": t.title,
             "priority": t.priority,
             "status": t.status,
@@ -57,7 +59,7 @@ def task_grid():
         rowData=[],
         columnDefs=COLUMN_DEFS,
         defaultColDef={"sortable": True, "filter": True, "resizable": True},
-        getRowId="String(params.data.id)",
+        getRowId="params.data.key",
         getRowStyle={"styleConditions": [{"condition": "params.data.status === 'done'", "style": {"opacity": 0.55}}]},
         dashGridOptions={
             "pagination": True,
@@ -68,6 +70,77 @@ def task_grid():
             "theme": {"function": GRID_THEME},
         },
         style={"width": "100%"},
+    )
+
+
+def meta_text(task) -> str:
+    text = f"Created {task.created_at.strftime('%Y-%m-%d %H:%M')} UTC"
+    if task.completed_at:
+        text += f"  ·  Completed {task.completed_at.strftime('%Y-%m-%d %H:%M')} UTC"
+    return text
+
+
+def clicked_task_id(clicked):
+    """The task id from a dash-ag-grid ``cellClicked`` event.
+
+    The event carries ``rowId`` (the grid's row id, which is our string ``key``), not the row's data.
+    """
+    row_id = (clicked or {}).get("rowId")
+    return int(row_id) if str(row_id).isdigit() else None
+
+
+def error_alert(message: str):
+    return dbc.Alert(message, color="danger", className="py-2 mb-3") if message else ""
+
+
+def _as_int(value):
+    """dbc.Select may send numbers as strings; leave anything else for the service to reject."""
+    return int(value) if isinstance(value, str) and value.isdigit() else value
+
+
+def detail_panel():
+    """Slide-in panel for viewing, editing and deleting one task."""
+    return dbc.Offcanvas(
+        [
+            html.Div(id="detail-meta", className="text-muted small mb-3"),
+            html.Div(id="detail-error"),
+            dbc.Label("Title", html_for="edit-title"),
+            dbc.Input(id="edit-title", type="text", maxLength=service.MAX_TITLE, className="mb-3"),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Label("Priority", html_for="edit-priority"),
+                            dbc.Select(
+                                id="edit-priority",
+                                options=[{"label": f"Priority {p}", "value": p} for p in (1, 2, 3)],
+                            ),
+                        ]
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Label("Status", html_for="edit-status"),
+                            dbc.Select(
+                                id="edit-status",
+                                options=[{"label": s.capitalize(), "value": s} for s in ("open", "done")],
+                            ),
+                        ]
+                    ),
+                ],
+                className="g-2 mb-4",
+            ),
+            html.Div(
+                [
+                    dbc.Button("Save", id="save", n_clicks=0, color="primary", className="me-2"),
+                    dbc.Button("Delete", id="delete", n_clicks=0, color="danger", outline=True),
+                ]
+            ),
+            dcc.ConfirmDialog(id="confirm-delete", message="Delete this task? This cannot be undone."),
+        ],
+        id="detail",
+        title="Task details",
+        placement="end",
+        is_open=False,
     )
 
 
@@ -153,7 +226,10 @@ def register_dashboard(server, stylesheet, template):
                 ),
                 className="mt-3",
             ),
+            detail_panel(),
             dcc.Store(id="version", data=0),
+            dcc.Store(id="edits", data=0),
+            dcc.Store(id="selected-id", data=None),
         ],
         fluid="lg",
         className="pb-4",
@@ -181,8 +257,9 @@ def register_dashboard(server, stylesheet, template):
         Output("kpis", "children"),
         Output("task-table", "rowData"),
         Input("version", "data"),
+        Input("edits", "data"),
     )
-    def refresh(_version):
+    def refresh(_version, _edits):
         with factory() as s:
             per_day = pd.DataFrame(stats.completed_per_day(s), columns=["day", "completed"])
             prio = stats.open_by_priority(s)
@@ -194,5 +271,59 @@ def register_dashboard(server, stylesheet, template):
             kpi_cards(k),
             rows,
         )
+
+    NO_CHANGE = (no_update,) * 8
+
+    @dash_app.callback(
+        Output("edits", "data"),
+        Output("detail", "is_open"),
+        Output("selected-id", "data"),
+        Output("edit-title", "value"),
+        Output("edit-priority", "value"),
+        Output("edit-status", "value"),
+        Output("detail-meta", "children"),
+        Output("detail-error", "children"),
+        Input("task-table", "cellClicked"),
+        Input("save", "n_clicks"),
+        Input("confirm-delete", "submit_n_clicks"),
+        State("selected-id", "data"),
+        State("edit-title", "value"),
+        State("edit-priority", "value"),
+        State("edit-status", "value"),
+        State("edits", "data"),
+        prevent_initial_call=True,
+    )
+    def detail(clicked, _save, _delete, selected, title, priority, status, edits):
+        trigger = ctx.triggered_id
+        with factory() as s:
+            if trigger == "task-table":
+                task_id = clicked_task_id(clicked)
+                if task_id is None:
+                    return NO_CHANGE
+                try:
+                    task = service.get_task(s, task_id)
+                except TaskNotFound:  # deleted since the table was drawn: refresh instead of opening
+                    return (edits + 1, False, None, no_update, no_update, no_update, no_update, "")
+                return (no_update, True, task.id, task.title, task.priority, task.status, meta_text(task), "")
+            if selected is None:
+                return NO_CHANGE
+            try:
+                if trigger == "save":
+                    service.update_task(s, selected, title=title, priority=_as_int(priority), status=status)
+                elif trigger == "confirm-delete":
+                    service.delete_task(s, selected)
+            except ValidationError as exc:  # keep the panel open so the edit can be fixed
+                return (no_update,) * 7 + (error_alert(str(exc)),)
+            except TaskNotFound:  # already gone: close and refresh
+                pass
+        return (edits + 1, False, None, no_update, no_update, no_update, no_update, "")
+
+    @dash_app.callback(
+        Output("confirm-delete", "displayed"),
+        Input("delete", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def ask_to_delete(_n_clicks):
+        return True
 
     return dash_app
