@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -7,7 +7,8 @@ import dash_bootstrap_components as dbc
 from examples.task_tracker import stats
 from examples.task_tracker.app import create_app, seed_demo
 from examples.task_tracker.dashboard import (
-    _as_int, clicked_task_id, error_alert, kpi_cards, meta_text, per_day_figure, priority_figure, table_rows,
+    _as_int, clicked_task_id, describe_filter, error_alert, filter_from_click, filter_kwargs, kpi_cards, meta_text,
+    per_day_figure, priority_figure, table_rows,
 )
 from examples.theme import COLORWAY
 from examples.task_tracker.models import Task
@@ -178,15 +179,34 @@ def add(client, n_clicks=1, title="Ship it", priority=1, version=0):
     return client.post("/dash/_dash-update-component", json=payload)
 
 
+def refresh_table(client, version=0, edits=0, table_filter=None):
+    """Fire the table callback; returns (rows, filter label, clear-button style)."""
+    payload = {
+        "output": "..task-table.rowData...filter-label.children...clear-filter.style..",
+        "outputs": [
+            {"id": "task-table", "property": "rowData"},
+            {"id": "filter-label", "property": "children"},
+            {"id": "clear-filter", "property": "style"},
+        ],
+        "inputs": [
+            {"id": "version", "property": "data", "value": version},
+            {"id": "edits", "property": "data", "value": edits},
+            {"id": "table-filter", "property": "data", "value": table_filter},
+        ],
+        "changedPropIds": ["table-filter.data"],
+    }
+    body = client.post("/dash/_dash-update-component", json=payload).get_json()["response"]
+    return body["task-table"]["rowData"], body["filter-label"]["children"], body["clear-filter"]["style"]
+
+
 def refresh(client, version=0, edits=0):
     """Fire the refresh callback (what runs on page load and after every change)."""
     payload = {
-        "output": "..per-day.figure...by-priority.figure...kpis.children...task-table.rowData..",
+        "output": "..per-day.figure...by-priority.figure...kpis.children..",
         "outputs": [
             {"id": "per-day", "property": "figure"},
             {"id": "by-priority", "property": "figure"},
             {"id": "kpis", "property": "children"},
-            {"id": "task-table", "property": "rowData"},
         ],
         "inputs": [
             {"id": "version", "property": "data", "value": version},
@@ -239,12 +259,14 @@ def test_refresh_returns_figures_kpis_and_table_rows(client):
     body = refresh(client).get_json()["response"]
     assert len(body["per-day"]["figure"]["data"]) == 1
     assert "Open" in str(body["kpis"]["children"])
-    assert [r["title"] for r in body["task-table"]["rowData"]] == ["one", "two"]
+    assert "task-table" not in body  # the table has its own callback, so charts do not redraw on a filter change
+    rows, _, _ = refresh_table(client)
+    assert [r["title"] for r in rows] == ["one", "two"]
 
 
 def test_a_task_added_through_the_dashboard_shows_up_in_the_table(client):
     add(client, title="From the form")
-    rows = refresh(client, version=1).get_json()["response"]["task-table"]["rowData"]
+    rows, _, _ = refresh_table(client, version=1)
     assert [r["title"] for r in rows] == ["From the form"]
 
 
@@ -447,7 +469,7 @@ def test_the_delete_button_asks_for_confirmation_first(client):
 def test_an_edit_made_in_the_panel_shows_up_in_the_table(client):
     task = new_task(client, "before", 3)
     detail(client, "save", selected=task["id"], title="after", priority=1, status="open", edits=0)
-    rows = refresh(client, edits=1).get_json()["response"]["task-table"]["rowData"]
+    rows, _, _ = refresh_table(client, edits=1)
     assert [(r["title"], r["priority"]) for r in rows] == [("after", 1)]
 
 
@@ -469,3 +491,148 @@ def test_panel_helpers():
     assert meta_text(t) == "Created 2026-01-02 03:04 UTC  ·  Completed 2026-01-05 06:07 UTC"
     assert error_alert("") == "" and "boom" in str(error_alert("boom"))
     assert (_as_int("3"), _as_int(2), _as_int("abc"), _as_int(None)) == (3, 2, "abc", None)
+
+
+# --- chart-click filters ---------------------------------------------------
+
+# Captured from a real browser session (dash 4.4.1, plotly 7.1.0). Extra keys are what Plotly really sends.
+BAR_CLICK = {"points": [{"curveNumber": 0, "pointNumber": 5, "pointIndex": 5, "x": "2026-09-30", "y": 3,
+                         "label": "2026-09-30", "value": 3, "xPixel": 251.575, "yPixel": 104.8,
+                         "bbox": {"x0": 252.26, "x1": 282.89, "y0": 120.8, "y1": 120.8}}], "timestamp": 1791417796073}
+PIE_CLICK = {"points": [{"curveNumber": 0, "label": "Priority 3", "color": "#E69F00", "value": 1,
+                         "percent": 0.14285714285714285, "v": 1, "i": 1, "pointNumber": 1,
+                         "bbox": {"x0": 73.5, "x1": 149.5, "y0": 165.2, "y1": 241.1}, "pointNumbers": [1]}],
+             "timestamp": 1791417804947}
+
+
+def set_filter(client, trigger, *, day=None, priority=None, clear=0, current=None):
+    """Fire the chart-click callback; returns {component id: new value} for the outputs it changed."""
+    payload = {
+        "output": "..table-filter.data...per-day.clickData...by-priority.clickData..",
+        "outputs": [
+            {"id": "table-filter", "property": "data"},
+            {"id": "per-day", "property": "clickData"},
+            {"id": "by-priority", "property": "clickData"},
+        ],
+        "inputs": [
+            {"id": "per-day", "property": "clickData", "value": day},
+            {"id": "by-priority", "property": "clickData", "value": priority},
+            {"id": "clear-filter", "property": "n_clicks", "value": clear},
+        ],
+        "state": [{"id": "table-filter", "property": "data", "value": current}],
+        "changedPropIds": [{"day": "per-day.clickData", "priority": "by-priority.clickData", "clear": "clear-filter.n_clicks"}[trigger]],
+    }
+    resp = client.post("/dash/_dash-update-component", json=payload)
+    assert resp.status_code == 200
+    return {cid: next(iter(props.values())) for cid, props in resp.get_json()["response"].items()}
+
+
+def test_filter_from_a_real_bar_click():
+    assert filter_from_click("day", BAR_CLICK) == {"kind": "day", "value": "2026-09-30"}
+
+
+def test_filter_from_a_real_pie_click():
+    assert filter_from_click("priority", PIE_CLICK) == {"kind": "priority", "value": 3}
+
+
+@pytest.mark.parametrize(
+    "kind,click",
+    [("day", None), ("day", {}), ("day", {"points": []}), ("day", {"points": [{"x": "not a date"}]}),
+     ("day", {"points": [{"y": 3}]}), ("priority", None), ("priority", {"points": [{"label": "Priority"}]}),
+     ("priority", {"points": [{"label": "Priority x"}]}), ("priority", {"points": [{"value": 1}]})],
+)
+def test_filter_from_click_ignores_malformed_clicks(kind, click):
+    assert filter_from_click(kind, click) is None
+
+
+def test_a_timestamp_style_day_value_is_accepted():
+    assert filter_from_click("day", {"points": [{"x": "2026-09-30T00:00:00"}]}) == {"kind": "day", "value": "2026-09-30"}
+
+
+def test_filter_kwargs():
+    assert filter_kwargs({"kind": "day", "value": "2026-09-30"}) == {"completed_on": date(2026, 9, 30)}
+    assert filter_kwargs({"kind": "priority", "value": 3}) == {"status": "open", "priority": 3}
+    for bad in (None, {}, {"kind": "day"}, {"kind": "day", "value": "nope"}, {"kind": "priority", "value": 9},
+                {"kind": "priority", "value": "3"}, {"kind": "weird", "value": 1}, "text"):
+        assert filter_kwargs(bad) == {}
+
+
+def test_describe_filter():
+    assert describe_filter(None, 5)[1] == {"display": "none"} and "Click a bar" in describe_filter(None, 5)[0]
+    label, style = describe_filter({"kind": "day", "value": "2026-09-30"}, 3)
+    assert label == "Completed on 2026-09-30: 3 tasks" and style == {}
+    assert describe_filter({"kind": "priority", "value": 2}, 1)[0] == "Open, priority 2: 1 task"
+    assert describe_filter({"kind": "priority", "value": 2}, 0)[0] == "Open, priority 2: 0 tasks"
+
+
+def test_clicking_a_bar_sets_a_day_filter_and_resets_both_click_values(client):
+    out = set_filter(client, "day", day=BAR_CLICK)
+    assert out == {"table-filter": {"kind": "day", "value": "2026-09-30"}, "per-day": None, "by-priority": None}
+
+
+def test_clicking_a_slice_sets_a_priority_filter(client):
+    assert set_filter(client, "priority", priority=PIE_CLICK)["table-filter"] == {"kind": "priority", "value": 3}
+
+
+def test_clicking_a_different_bar_replaces_the_filter(client):
+    current = {"kind": "priority", "value": 3}
+    assert set_filter(client, "day", day=BAR_CLICK, current=current)["table-filter"] == {"kind": "day", "value": "2026-09-30"}
+
+
+def test_clicking_the_active_bar_or_slice_again_clears_the_filter(client):
+    assert set_filter(client, "day", day=BAR_CLICK, current={"kind": "day", "value": "2026-09-30"})["table-filter"] is None
+    assert set_filter(client, "priority", priority=PIE_CLICK, current={"kind": "priority", "value": 3})["table-filter"] is None
+
+
+def test_the_clear_button_clears_the_filter(client):
+    out = set_filter(client, "clear", clear=1, current={"kind": "priority", "value": 1})
+    assert out["table-filter"] is None
+
+
+@pytest.mark.parametrize("trigger,kw", [("day", {"day": None}), ("priority", {"priority": None}),
+                                        ("day", {"day": {"points": []}}), ("priority", {"priority": {"points": [{"label": "?"}]}})])
+def test_a_click_that_is_not_on_a_bar_or_slice_changes_nothing(client, trigger, kw):
+    assert set_filter(client, trigger, current={"kind": "day", "value": "2026-09-30"}, **kw) == {}
+
+
+def _seed_for_filters(client):
+    ids = {}
+    for title, priority in (("a", 1), ("b", 3), ("c", 3), ("d", 2), ("e", 3)):
+        ids[title] = new_task(client, title, priority)["id"]
+    for title in ("d", "e"):  # done today (UTC); "e" is priority 3, so the pie filter must exclude it
+        client.patch(f"/api/tasks/{ids[title]}", json={"status": "done"})
+    return ids
+
+
+def test_the_table_shows_only_open_tasks_of_the_clicked_priority(client):
+    _seed_for_filters(client)
+    rows, label, style = refresh_table(client, table_filter={"kind": "priority", "value": 3})
+    assert sorted(r["title"] for r in rows) == ["b", "c"] and all(r["status"] == "open" for r in rows)
+    assert label == "Open, priority 3: 2 tasks" and style == {}
+
+
+def test_the_table_shows_only_tasks_completed_on_the_clicked_day(client):
+    _seed_for_filters(client)
+    today = datetime.utcnow().date().isoformat()
+    rows, label, _ = refresh_table(client, table_filter={"kind": "day", "value": today})
+    assert sorted(r["title"] for r in rows) == ["d", "e"] and label == f"Completed on {today}: 2 tasks"
+    rows, label, _ = refresh_table(client, table_filter={"kind": "day", "value": "2001-01-01"})
+    assert rows == [] and label == "Completed on 2001-01-01: 0 tasks"
+
+
+def test_with_no_filter_the_table_shows_everything_and_hides_the_clear_button(client):
+    _seed_for_filters(client)
+    rows, label, style = refresh_table(client, table_filter=None)
+    assert len(rows) == 5 and "Click a bar" in label and style == {"display": "none"}
+
+
+def test_a_garbage_stored_filter_falls_back_to_showing_everything(client):
+    _seed_for_filters(client)
+    rows, _, style = refresh_table(client, table_filter={"kind": "day", "value": "garbage"})
+    assert len(rows) == 5 and style == {"display": "none"}
+
+
+def test_the_filter_bar_and_store_are_in_the_layout(client):
+    layout = str(client.get("/dash/_dash-layout").get_json())
+    for piece in ("table-filter", "filter-label", "clear-filter"):
+        assert piece in layout
