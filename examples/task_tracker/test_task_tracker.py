@@ -6,7 +6,9 @@ import dash_bootstrap_components as dbc
 
 from examples.task_tracker import stats
 from examples.task_tracker.app import create_app, seed_demo
-from examples.task_tracker.dashboard import kpi_cards, per_day_figure, priority_figure, table_rows
+from examples.task_tracker.dashboard import (
+    _as_int, clicked_task_id, error_alert, kpi_cards, meta_text, per_day_figure, priority_figure, table_rows,
+)
 from examples.theme import COLORWAY
 from examples.task_tracker.models import Task
 
@@ -176,7 +178,7 @@ def add(client, n_clicks=1, title="Ship it", priority=1, version=0):
     return client.post("/dash/_dash-update-component", json=payload)
 
 
-def refresh(client, version=0):
+def refresh(client, version=0, edits=0):
     """Fire the refresh callback (what runs on page load and after every change)."""
     payload = {
         "output": "..per-day.figure...by-priority.figure...kpis.children...task-table.rowData..",
@@ -186,7 +188,10 @@ def refresh(client, version=0):
             {"id": "kpis", "property": "children"},
             {"id": "task-table", "property": "rowData"},
         ],
-        "inputs": [{"id": "version", "property": "data", "value": version}],
+        "inputs": [
+            {"id": "version", "property": "data", "value": version},
+            {"id": "edits", "property": "data", "value": edits},
+        ],
         "changedPropIds": ["version.data"],
     }
     return client.post("/dash/_dash-update-component", json=payload)
@@ -256,7 +261,7 @@ def test_table_rows_order_open_first_then_priority_then_newest():
 def test_table_row_shape_and_date_format():
     t = Task(id=7, title="x", status="done", priority=2, created_at=datetime(2026, 1, 2, 3, 4), completed_at=datetime(2026, 1, 5, 6, 7))
     assert table_rows([t]) == [
-        {"id": 7, "title": "x", "priority": 2, "status": "done", "created": "2026-01-02 03:04", "completed": "2026-01-05 06:07"}
+        {"id": 7, "key": "7", "title": "x", "priority": 2, "status": "done", "created": "2026-01-02 03:04", "completed": "2026-01-05 06:07"}
     ]
     t.completed_at = None
     assert table_rows([t])[0]["completed"] == ""
@@ -264,7 +269,7 @@ def test_table_row_shape_and_date_format():
 
 def test_the_grid_is_mounted_with_an_id_per_row(client):
     layout = str(client.get("/dash/_dash-layout").get_json())
-    assert "AgGrid" in layout and "task-table" in layout and "String(params.data.id)" in layout
+    assert "AgGrid" in layout and "task-table" in layout and "params.data.key" in layout
 
 
 def test_kpi_cards_show_values():
@@ -292,3 +297,175 @@ def test_page_links_the_chosen_theme_and_rejects_unknown_ones():
     assert dbc.themes.FLATLY in html
     with pytest.raises(ValueError, match="unknown theme"):
         create_app("sqlite://", theme="neon")
+
+
+# --- detail panel ---------------------------------------------------------
+
+DETAIL_OUTPUTS = [
+    "edits.data", "detail.is_open", "selected-id.data", "edit-title.value",
+    "edit-priority.value", "edit-status.value", "detail-meta.children", "detail-error.children",
+]
+TRIGGERS = {"click": "task-table.cellClicked", "save": "save.n_clicks", "delete": "confirm-delete.submit_n_clicks"}
+
+
+def detail(client, trigger, *, clicked=None, selected=None, title=None, priority=None, status=None, edits=0):
+    """Fire the detail-panel callback as the browser would; return {component id: new value}.
+
+    Outputs the callback leaves alone (no_update) are absent from the result.
+    """
+    payload = {
+        "output": "..{}..".format("...".join(DETAIL_OUTPUTS)),
+        "outputs": [{"id": o.split(".")[0], "property": o.split(".")[1]} for o in DETAIL_OUTPUTS],
+        "inputs": [
+            {"id": "task-table", "property": "cellClicked", "value": clicked},
+            {"id": "save", "property": "n_clicks", "value": 1 if trigger == "save" else 0},
+            {"id": "confirm-delete", "property": "submit_n_clicks", "value": 1 if trigger == "delete" else 0},
+        ],
+        "state": [
+            {"id": "selected-id", "property": "data", "value": selected},
+            {"id": "edit-title", "property": "value", "value": title},
+            {"id": "edit-priority", "property": "value", "value": priority},
+            {"id": "edit-status", "property": "value", "value": status},
+            {"id": "edits", "property": "data", "value": edits},
+        ],
+        "changedPropIds": [TRIGGERS[trigger]],
+    }
+    resp = client.post("/dash/_dash-update-component", json=payload)
+    assert resp.status_code == 200
+    return {cid: next(iter(props.values())) for cid, props in resp.get_json()["response"].items()}
+
+
+def new_task(client, title="Write docs", priority=2):
+    return client.post("/api/tasks", json={"title": title, "priority": priority}).get_json()
+
+
+def row_click(task):
+    """A dash-ag-grid cellClicked event, as captured from a real browser session (note: no ``data`` field)."""
+    return {"value": task["title"], "colId": "title", "rowIndex": 0, "rowId": str(task["id"]), "timestamp": 1791417601932}
+
+
+def test_clicking_a_row_opens_the_panel_filled_from_the_database(client):
+    task = new_task(client, "Write docs", 3)
+    out = detail(client, "click", clicked=row_click(task))
+    assert out["detail"] is True
+    assert out["selected-id"] == task["id"]
+    assert (out["edit-title"], out["edit-priority"], out["edit-status"]) == ("Write docs", 3, "open")
+    assert out["detail-meta"].startswith("Created ") and out["detail-error"] == ""
+    assert "edits" not in out  # opening changes nothing, so no refresh
+
+
+def test_the_row_id_in_the_click_event_is_what_selects_the_task(client):
+    first, second = new_task(client, "first"), new_task(client, "second")
+    assert detail(client, "click", clicked=row_click(second))["edit-title"] == "second"
+    assert detail(client, "click", clicked=row_click(first))["edit-title"] == "first"
+
+
+@pytest.mark.parametrize("clicked", [None, {}, {"rowId": None}, {"rowId": "abc"}, {"data": {"id": 1}}])
+def test_a_click_without_a_row_changes_nothing(client, clicked):
+    assert detail(client, "click", clicked=clicked) == {}
+
+
+def test_clicking_a_row_deleted_elsewhere_refreshes_instead_of_opening(client):
+    task = new_task(client)
+    client.delete(f"/api/tasks/{task['id']}")
+    out = detail(client, "click", clicked=row_click(task), edits=4)
+    assert out["edits"] == 5 and out["detail"] is False and out["selected-id"] is None
+
+
+def test_saving_applies_all_three_fields_closes_the_panel_and_triggers_a_refresh(client):
+    task = new_task(client, "old", 3)
+    out = detail(client, "save", selected=task["id"], title=" new ", priority=1, status="done", edits=2)
+    assert out["edits"] == 3 and out["detail"] is False and out["selected-id"] is None and out["detail-error"] == ""
+    saved = client.get("/api/tasks").get_json()[0]
+    assert (saved["title"], saved["priority"], saved["status"]) == ("new", 1, "done")
+    assert saved["completed_at"] is not None
+
+
+def test_saving_accepts_a_priority_sent_as_a_string(client):
+    task = new_task(client)
+    detail(client, "save", selected=task["id"], title="x", priority="3", status="open")
+    assert client.get("/api/tasks").get_json()[0]["priority"] == 3
+
+
+@pytest.mark.parametrize(
+    "fields,message",
+    [
+        ({"title": "   ", "priority": 2, "status": "open"}, "title is required"),
+        ({"title": "ok", "priority": "9", "status": "open"}, "priority must be"),
+        ({"title": "ok", "priority": "abc", "status": "open"}, "priority must be"),
+        ({"title": "ok", "priority": 2, "status": "bogus"}, "status must be"),
+    ],
+)
+def test_saving_a_bad_edit_shows_an_error_keeps_the_panel_open_and_changes_nothing(client, fields, message):
+    task = new_task(client, "keep", 2)
+    out = detail(client, "save", selected=task["id"], **fields)
+    assert message in str(out["detail-error"])
+    assert "detail" not in out and "edits" not in out and "selected-id" not in out  # stays open, nothing to refresh
+    unchanged = client.get("/api/tasks").get_json()[0]
+    assert (unchanged["title"], unchanged["priority"], unchanged["status"]) == ("keep", 2, "open")
+
+
+def test_saving_a_task_that_was_deleted_elsewhere_closes_the_panel_and_refreshes(client):
+    task = new_task(client)
+    client.delete(f"/api/tasks/{task['id']}")
+    out = detail(client, "save", selected=task["id"], title="x", priority=1, status="open", edits=0)
+    assert out["detail"] is False and out["edits"] == 1 and out["detail-error"] == ""
+
+
+def test_confirming_delete_removes_the_task_and_closes_the_panel(client):
+    keep, drop = new_task(client, "keep"), new_task(client, "drop")
+    out = detail(client, "delete", selected=drop["id"], edits=7)
+    assert out["edits"] == 8 and out["detail"] is False and out["selected-id"] is None
+    assert [t["id"] for t in client.get("/api/tasks").get_json()] == [keep["id"]]
+
+
+def test_confirming_delete_for_an_already_deleted_task_is_harmless(client):
+    task = new_task(client)
+    client.delete(f"/api/tasks/{task['id']}")
+    out = detail(client, "delete", selected=task["id"])
+    assert out["detail"] is False and out["detail-error"] == ""
+
+
+@pytest.mark.parametrize("trigger", ["save", "delete"])
+def test_save_and_delete_do_nothing_when_no_task_is_selected(client, trigger):
+    new_task(client)
+    assert detail(client, trigger, selected=None, title="x", priority=1, status="open") == {}
+    assert len(client.get("/api/tasks").get_json()) == 1
+
+
+def test_the_delete_button_asks_for_confirmation_first(client):
+    payload = {
+        "output": "confirm-delete.displayed",
+        "outputs": {"id": "confirm-delete", "property": "displayed"},
+        "inputs": [{"id": "delete", "property": "n_clicks", "value": 1}],
+        "changedPropIds": ["delete.n_clicks"],
+    }
+    resp = client.post("/dash/_dash-update-component", json=payload)
+    assert resp.get_json()["response"]["confirm-delete"]["displayed"] is True
+
+
+def test_an_edit_made_in_the_panel_shows_up_in_the_table(client):
+    task = new_task(client, "before", 3)
+    detail(client, "save", selected=task["id"], title="after", priority=1, status="open", edits=0)
+    rows = refresh(client, edits=1).get_json()["response"]["task-table"]["rowData"]
+    assert [(r["title"], r["priority"]) for r in rows] == [("after", 1)]
+
+
+def test_the_panel_and_its_controls_are_in_the_layout(client):
+    layout = str(client.get("/dash/_dash-layout").get_json())
+    for piece in ("Offcanvas", "ConfirmDialog", "edit-title", "edit-priority", "edit-status", "'save'", "'delete'"):
+        assert piece in layout
+
+
+def test_clicked_task_id():
+    assert clicked_task_id({"rowId": "14"}) == 14 and clicked_task_id({"rowId": 14}) == 14
+    assert clicked_task_id(None) is None and clicked_task_id({}) is None and clicked_task_id({"rowId": "x"}) is None
+
+
+def test_panel_helpers():
+    t = Task(id=1, title="x", status="open", priority=2, created_at=datetime(2026, 1, 2, 3, 4))
+    assert meta_text(t) == "Created 2026-01-02 03:04 UTC"
+    t.completed_at = datetime(2026, 1, 5, 6, 7)
+    assert meta_text(t) == "Created 2026-01-02 03:04 UTC  ·  Completed 2026-01-05 06:07 UTC"
+    assert error_alert("") == "" and "boom" in str(error_alert("boom"))
+    assert (_as_int("3"), _as_int(2), _as_int("abc"), _as_int(None)) == (3, 2, "abc", None)
