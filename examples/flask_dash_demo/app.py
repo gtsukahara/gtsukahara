@@ -87,4 +87,4 @@ def create_app(theme=DEFAULT_THEME) -> Flask:
 
 
 if __name__ == "__main__":
-    create_app(theme=theme_from_env()).run(debug=True, port=5003)
+    create_app(theme=theme_from_env()).run(debug=False, port=5003)
