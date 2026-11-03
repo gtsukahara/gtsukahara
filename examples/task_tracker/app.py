@@ -42,4 +42,4 @@ def create_app(db_url="sqlite:///tasks.db", theme=DEFAULT_THEME) -> Flask:
 if __name__ == "__main__":
     app = create_app(theme=theme_from_env())
     seed_demo(app.extensions["task_sessions"])
-    app.run(debug=True, port=5002)
+    app.run(port=5002)
