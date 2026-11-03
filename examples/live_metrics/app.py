@@ -113,6 +113,7 @@ def create_app(seed=None, interval_ms=2000, prefill=60, clock=None, theme=DEFAUL
 
 
 if __name__ == "__main__":
+    debug_mode = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes", "on")
     create_app(theme=theme_from_env()).run(
-        debug=True, port=int(os.environ.get("PORT", 5001))
+        debug=debug_mode, port=int(os.environ.get("PORT", 5001))
     )
